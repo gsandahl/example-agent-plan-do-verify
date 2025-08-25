@@ -1,4 +1,4 @@
-# AI Agent Framework
+# Sample AI Agent Framework
 
 This repository contains a simple AI agent framework built with [Opper](https://opper.ai) that demonstrates how to create intelligent agents with reasoning capabilities.
 
