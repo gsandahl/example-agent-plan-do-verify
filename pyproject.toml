@@ -1,0 +1,10 @@
+[project]
+name = "opper-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "opperai>=1.1.2",
+    "pydantic>=2.11.7",
+]
