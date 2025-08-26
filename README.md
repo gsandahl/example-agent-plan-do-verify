@@ -6,19 +6,23 @@ This repository contains a simple AI agent framework built with [Opper](https://
 
 ### BaseAgent (`base_agent.py`)
 
-A foundational class for building AI agents that use a **Plan → Act → Reflect** reasoning loop. The BaseAgent:
+A foundational class for building AI agents that use a **Think → Act** reasoning loop. The BaseAgent provides:
 
-- **Plans**: Creates a step-by-step plan to achieve a goal
-- **Acts**: Executes actions using available tools
-- **Reflects**: Analyzes results and decides next steps
-- **Repeats**: Continues until the goal is achieved
+**Core Reasoning Loop:**
+- **Think**: Analyzes current situation, reviews previous results, and decides next action
+- **Act**: Executes actions using available tools 
+- **Repeat**: Continues until goal is achieved or max iterations reached
 
-Key features:
-- Tool management system for adding custom capabilities
-- Structured input/output with Pydantic schemas
-- Built-in tracing and observability with Opper
-- Flexible architecture - use directly or extend with subclasses
-- Callback for yielding agent progress to UIs
+**Key Features:**
+- **Iteration Awareness**: Tracks progress and plans efficiently within iteration limits
+- **Tool Management**: Dynamic tool registration and execution with parameter validation
+- **Context Management**: Maintains execution context across iterations for data sharing
+- **Smart Planning**: AI-driven action selection that prioritizes tool usage over direct responses
+- **Structured I/O**: Pydantic schemas for consistent input/output formatting
+- **Comprehensive Tracing**: Built-in observability with Opper for debugging and monitoring
+- **Flexible Architecture**: Use directly with tools/description or extend via subclassing
+- **Real-time Callbacks**: Status updates for UI integration and progress monitoring
+- **Error Handling**: Graceful failure recovery with detailed error reporting
 
 ### MathAgent (`math_agent.py`)
 
@@ -31,13 +35,16 @@ A complete example showing how to use BaseAgent to create a math-solving agent. 
 
 ### EmailAgent (`email_agent.py`)
 
-A Gmail-integrated agent that automates email management tasks. It includes:
+A comprehensive Gmail-integrated agent that automates email management workflows. It includes:
 
 - **Gmail API Integration**: Secure OAuth authentication with Gmail
-- **Email Fetching**: Finds unreplied emails in your inbox
-- **AI Reply Generation**: Creates contextual draft replies
-- **Batch Processing**: Handles multiple emails efficiently
-- **Draft Management**: Creates drafts you can review before sending
+- **Smart Email Listing**: Flexible email filtering with query support (unread, specific senders, etc.)
+- **Intelligent Email Analysis**: AI-powered categorization, priority assessment, and sentiment analysis
+- **Label Management**: Automatic label creation and application for email organization
+- **Reply Assessment**: Determines if emails need responses and urgency levels
+- **Draft Generation**: Creates contextual draft replies with proper threading
+- **Batch Processing**: Handles multiple emails efficiently with iteration management
+- **Comprehensive Workflow**: From email discovery to categorization, labeling, and response drafting
 
 Example run output:
 
@@ -95,12 +102,17 @@ export OPPER_API_KEY="your_api_key_here"
 python email_agent.py
 ```
 
-The first run will open a browser window for Gmail authentication. After authorization, the agent will:
-- Find your last 5 unreplied emails
-- Generate appropriate draft replies
-- Save drafts to your Gmail account for review
+The first run will open a browser window for Gmail authentication. After authorization, the agent can:
+- List and filter emails (unread, specific senders, date ranges, etc.)
+- Analyze emails for category, priority, sentiment, and action items
+- Apply appropriate labels for organization (work, personal, urgent, etc.)
+- Determine reply necessity and urgency
+- Generate contextual draft responses with proper threading
+- Handle complex workflows like "process 10 unread emails, categorize them, and draft responses"
 
 ## Creating Your Own Agent
+
+### Basic Example
 
 ```python
 from base_agent import BaseAgent, Tool
@@ -111,17 +123,22 @@ class MyTool(Tool):
         super().__init__(
             name="my_tool",
             description="What this tool does",
-            parameters={"param": "type"}
+            parameters={"param": "str - Description of parameter"}
         )
     
-    def execute(self, param: str) -> str:
-        return f"Processed: {param}"
+    def execute(self, _parent_span_id=None, param: str = "", **kwargs) -> dict:
+        return {
+            "success": True,
+            "result": f"Processed: {param}",
+            "data": {"input": param}
+        }
 
 # Create your agent
 agent = BaseAgent(
     name="MyAgent",
     description="What your agent does",
     tools=[MyTool()],
+    max_iterations=25,
     verbose=True
 )
 
@@ -129,12 +146,77 @@ agent = BaseAgent(
 result = agent.process("Your goal here")
 ```
 
+### Configuration Options
+
+The BaseAgent constructor accepts these parameters:
+
+- **`name`**: Agent identifier for tracing and logging
+- **`opper_api_key`**: Optional API key (uses OPPER_API_KEY env var if not provided)  
+- **`max_iterations`**: Maximum reasoning loop iterations (default: 25)
+- **`verbose`**: Enable detailed execution logging (default: False)
+- **`output_schema`**: Pydantic model for structured result formatting
+- **`tools`**: List of Tool instances for the agent to use
+- **`description`**: Agent description for AI context
+- **`callback`**: Function to receive status updates (`callback(event_type, data)`)
+
+### Tool Development
+
+Tools should:
+- Inherit from the `Tool` base class
+- Accept `_parent_span_id` for tracing AI calls within tools
+- Return structured results with success indicators
+- Handle errors gracefully
+- Use `**kwargs` for parameter flexibility
+
 ## How It Works
 
-1. **Give the agent a goal**: "Calculate (25 * 4) + (100 / 5) - 7"
-2. **Agent plans**: Breaks down the problem into steps
-3. **Agent acts**: Uses math tools to perform calculations
-4. **Agent reflects**: Checks if the answer is correct
-5. **Agent responds**: Returns structured solution with reasoning
+The BaseAgent implements a sophisticated **Think → Act** reasoning loop:
 
-The framework handles all the complexity of LLM interactions, tool management, and reasoning loops automatically.
+### Core Process
+
+1. **Initialize**: Agent receives a goal and sets up tracing/context
+2. **Think**: AI analyzes the situation and decides on the next action
+   - Reviews previous action results
+   - Considers available tools and parameters
+   - Tracks iteration count and remaining iterations
+   - Updates execution context with important data
+   - Decides if goal is achieved or what action to take next
+3. **Act**: Agent executes the chosen action using appropriate tools
+4. **Repeat**: Process continues until goal achieved or max iterations reached
+
+### Example Flow
+
+```
+🎯 Goal: "Calculate (25 * 4) + (100 / 5) - 7"
+🔄 Max iterations: 25
+
+--- Iteration 1 ---
+🧠 Think: Need to solve math expression, will multiply 25 * 4 first
+⚡ Act: multiply_tool(a=25, b=4) → 100
+
+--- Iteration 2 ---  
+🧠 Think: Got 100, now need to divide 100 / 5
+⚡ Act: divide_tool(a=100, b=5) → 20
+
+--- Iteration 3 ---
+🧠 Think: Have 100 and 20, need to add them
+⚡ Act: add_tool(a=100, b=20) → 120
+
+--- Iteration 4 ---
+🧠 Think: Have 120, need to subtract 7 to complete
+⚡ Act: subtract_tool(a=120, b=7) → 113
+
+--- Iteration 5 ---
+🧠 Think: All calculations complete, goal achieved
+✅ Result: 113
+```
+
+### Advanced Features
+
+- **Iteration Management**: Agent tracks progress and adjusts strategy based on remaining iterations
+- **Context Sharing**: Important data persists across iterations for complex workflows
+- **Tool Prioritization**: Agent prefers using tools over direct responses when possible
+- **Error Recovery**: Graceful handling of tool failures with alternative approaches
+- **Structured Output**: Consistent result formatting with detailed execution history
+
+The framework abstracts all complexity of LLM interactions, tool orchestration, and reasoning loops while providing full observability and control.
