@@ -20,8 +20,13 @@ class AddTool(Tool):
             }
         )
     
-    def execute(self, a: float, b: float) -> float:
+    def execute(self, _parent_span_id=None, a: float = None, b: float = None, **kwargs) -> float:
         """Execute the addition operation."""
+        # Handle both old and new calling conventions
+        if a is None:
+            a = kwargs.get('a', 0.0)
+        if b is None:
+            b = kwargs.get('b', 0.0)
         return a + b
 
 
@@ -38,8 +43,13 @@ class SubtractTool(Tool):
             }
         )
     
-    def execute(self, a: float, b: float) -> float:
+    def execute(self, _parent_span_id=None, a: float = None, b: float = None, **kwargs) -> float:
         """Execute the subtraction operation."""
+        # Handle both old and new calling conventions
+        if a is None:
+            a = kwargs.get('a', 0.0)
+        if b is None:
+            b = kwargs.get('b', 0.0)
         return a - b
 
 
@@ -56,8 +66,13 @@ class MultiplyTool(Tool):
             }
         )
     
-    def execute(self, a: float, b: float) -> float:
+    def execute(self, _parent_span_id=None, a: float = None, b: float = None, **kwargs) -> float:
         """Execute the multiplication operation."""
+        # Handle both old and new calling conventions
+        if a is None:
+            a = kwargs.get('a', 0.0)
+        if b is None:
+            b = kwargs.get('b', 0.0)
         return a * b
 
 
@@ -74,8 +89,13 @@ class DivideTool(Tool):
             }
         )
     
-    def execute(self, a: float, b: float) -> float:
+    def execute(self, _parent_span_id=None, a: float = None, b: float = None, **kwargs) -> float:
         """Execute the division operation."""
+        # Handle both old and new calling conventions
+        if a is None:
+            a = kwargs.get('a', 0.0)
+        if b is None:
+            b = kwargs.get('b', 0.0)
         if b == 0:
             raise ValueError("Cannot divide by zero")
         return a / b
@@ -98,27 +118,24 @@ class MathSolution(BaseModel):
 
 def print_status(event_type: str, data: dict):
     """
-    Example callback that only prints the plan thoughts.
+    Example callback that prints key events from the Think->Act loop.
     
     This demonstrates how to filter specific events and data from the agent's execution.
     
     Available event types:
     - "goal_start": When the agent starts processing a goal
-    - "plan_created": When a plan is created (contains plan.thoughts, plan.steps, etc.)
-    - "action_decided": When an action is decided (contains action details)
-    - "action_executed": When an action is executed (contains action + result)
-    - "reflection_completed": When reflection is done (contains reflection.thoughts, etc.)
+    - "thought_created": When a thought is created (contains thought.reasoning, thought.goal_achieved, etc.)
+    - "action_executed": When an action is executed (contains thought + action_result)
     - "goal_completed": When the goal processing is finished
     """
 
-    #print(f"Event type: {event_type}")
-    #print(f"Data: {data}")
     if event_type == "goal_start":
+        print(f"Agent: {data.get('agent_name')}")
         print(f"Goal: {data.get('goal')}")
-    elif event_type == "action_executed":
-        action = data.get("action", {}).get("user_message", "")
-        print(f"Agent: {action}")
-
+    elif event_type == "thought_created":
+        user_message = data.get("thought", {}).get("user_message", "")
+        if user_message:
+            print(user_message)
 
 def main():
     """Example usage of the MathAgent."""
@@ -158,8 +175,6 @@ def main():
             tools=math_tools,
             description=description,
         )
-
-        print("Agent created: ", agent.name)
 
         goal = "Calculate the result of (25 * 4) + (100 / 5) - 7"
 

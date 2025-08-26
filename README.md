@@ -29,6 +29,16 @@ A complete example showing how to use BaseAgent to create a math-solving agent. 
 - **Goal Processing**: Solves complex math problems step-by-step
 - **Status Callbacks**: Real-time updates during problem solving
 
+### EmailAgent (`email_agent.py`)
+
+A Gmail-integrated agent that automates email management tasks. It includes:
+
+- **Gmail API Integration**: Secure OAuth authentication with Gmail
+- **Email Fetching**: Finds unreplied emails in your inbox
+- **AI Reply Generation**: Creates contextual draft replies
+- **Batch Processing**: Handles multiple emails efficiently
+- **Draft Management**: Creates drafts you can review before sending
+
 Example run output:
 
 ```
@@ -42,6 +52,8 @@ Result: 113
 ```
 
 ## Quick Start
+
+### Math Agent
 
 1. **Install dependencies**:
 ```bash
@@ -57,6 +69,36 @@ export OPPER_API_KEY="your_api_key_here"
 ```bash
 python math_agent.py
 ```
+
+### Email Agent
+
+1. **Install all dependencies**:
+```bash
+python setup_email_agent.py
+```
+
+2. **Set up Gmail API credentials**:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing one
+   - Enable the Gmail API
+   - Configure OAuth consent screen
+   - Create OAuth 2.0 credentials (Desktop application)
+   - Download credentials as `credentials.json`
+
+3. **Set your Opper API key**:
+```bash
+export OPPER_API_KEY="your_api_key_here"
+```
+
+4. **Run the email agent**:
+```bash
+python email_agent.py
+```
+
+The first run will open a browser window for Gmail authentication. After authorization, the agent will:
+- Find your last 5 unreplied emails
+- Generate appropriate draft replies
+- Save drafts to your Gmail account for review
 
 ## Creating Your Own Agent
 

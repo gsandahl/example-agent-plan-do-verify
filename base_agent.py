@@ -1,6 +1,6 @@
 """
 Base Agent class for building AI agents with Opper.
-Provides a foundation for agents with a core reasoning loop (Plan -> Act -> Reflect).
+Provides a foundation for agents with a core reasoning loop (Think -> Act).
 """
 
 # No longer need ABC since BaseAgent is now a concrete class
@@ -16,36 +16,64 @@ class Tool(BaseModel):
     description: str = Field(description="Description of what the tool does")
     parameters: Dict[str, Any] = Field(description="Parameters the tool accepts")
     
-    def execute(self, **kwargs) -> Any:
-        """Execute the tool with given parameters."""
+    def execute(self, _parent_span_id: Optional[str] = None, **kwargs) -> Any:
+        """
+        Execute the tool with given parameters.
+        
+        Args:
+            _parent_span_id: Optional parent span ID for tracing AI calls within tools
+            **kwargs: Tool-specific parameters
+            
+        Returns:
+            Tool execution result
+        """
         # This is a placeholder - subclasses should implement actual tool logic
         raise NotImplementedError(f"Tool {self.name} execution not implemented")
+    
+    def make_ai_call(self, opper_client, name: str, instructions: str, input_data: Any = None, 
+                     output_schema: Optional[type] = None, parent_span_id: Optional[str] = None) -> Any:
+        """
+        Helper method for tools to make AI calls with proper tracing.
+        
+        Args:
+            opper_client: The Opper client instance
+            name: Name of the AI call for tracking
+            instructions: Instructions for the AI
+            input_data: Input data for the call
+            output_schema: Optional output schema
+            parent_span_id: Parent span ID for tracing
+            
+        Returns:
+            AI call result
+        """
+        return opper_client.call(
+            name=name,
+            instructions=instructions,
+            input=input_data,
+            output_schema=output_schema,
+            parent_span_id=parent_span_id,
+            model="groq/gpt-oss-120b"
+        )
 
 
-class Plan(BaseModel):
-    """Represents a plan for achieving the goal."""
-    thoughts: str = Field(description="Reasoning about the current situation and what needs to be done")
-    steps: List[str] = Field(description="Ordered list of steps to achieve the goal")
-    current_step: int = Field(description="Index of the current step to execute (0-based)")
-    goal_achieved: bool = Field(description="Whether the goal has been achieved")
-
-
-class Action(BaseModel):
-    """Represents an action to be taken."""
-    thoughts: str = Field(description="Reasoning about what action to take and why")
-    tool_name: str = Field(description="Name of the tool to use, or 'direct_response' for direct completion")
+class Thought(BaseModel):
+    """Represents the thinking step that combines planning and reflection."""
+    reasoning: str = Field(description="Analysis of current situation, previous results, and what needs to be done")
+    goal_achieved: bool = Field(description="Whether the main goal has been achieved")
+    todo_list: str = Field(description="A markdown list of tasks checked of and todo")
+    next_action_needed: bool = Field(description="Whether an action is needed to make progress")
+    tool_name: str = Field(description="Name of the tool to use, or 'direct_response' for direct completion, or 'none' if goal achieved")
     tool_parameters: Dict[str, Any] = Field(description="Parameters to pass to the tool")
     expected_outcome: str = Field(description="What we expect to happen from this action")
     user_message: str = Field(description="A note to the user on what you are about to do")
 
-
-class Reflection(BaseModel):
-    """Represents reflection on the result of an action."""
-    thoughts: str = Field(description="Analysis of what happened and what was learned")
-    action_successful: bool = Field(description="Whether the action achieved its expected outcome")
-    lessons_learned: str = Field(description="Key insights from this action")
-    next_steps: str = Field(description="What should be done next based on this reflection")
-    goal_progress: str = Field(description="Assessment of progress toward the overall goal")
+class ActionResult(BaseModel):
+    """Represents the result of executing an action."""
+    success: bool = Field(description="Whether the action was executed successfully")
+    result: str = Field(description="The result or output from the action")
+    tool_name: str = Field(description="Name of the tool that was executed")
+    parameters: Dict[str, Any] = Field(description="Parameters that were passed to the tool")
+    execution_time: float = Field(description="Time taken to execute the action")
 
 
 class BaseAgent:
@@ -53,7 +81,7 @@ class BaseAgent:
     Base class for AI agents using Opper with a core reasoning loop.
     
     This class provides a foundation for building agents with:
-    - A core reasoning loop (Plan -> Act -> Reflect)
+    - A core reasoning loop (Think -> Act)
     - Tool management and execution
     - Integration with Opper for LLM calls
     - Structured state management
@@ -67,7 +95,7 @@ class BaseAgent:
         self,
         name: str,
         opper_api_key: Optional[str] = None,
-        max_iterations: int = 10,
+        max_iterations: int = 25,
         verbose: bool = False,
         output_schema: Optional[type] = None,
         tools: Optional[List[Tool]] = None,
@@ -95,9 +123,11 @@ class BaseAgent:
         self.callback = callback
         
         # Initialize agent state
-        self.current_plan: Optional[Plan] = None
+        self.current_thought: Optional[Thought] = None
         self.execution_history: List[Dict[str, Any]] = []
         self.current_goal: Optional[str] = None
+        self.execution_context: Dict[str, Any] = {}  # Context data shared between iterations
+        self.last_action_result: Optional[ActionResult] = None
         
         # Get tools and description (from constructor or subclass)
         self.tools = tools if tools is not None else self.get_tools()
@@ -145,11 +175,11 @@ class BaseAgent:
         Check if the goal has been achieved based on execution history.
         Override this method for custom goal achievement logic.
         
-        Default implementation: checks if the last reflection indicates success.
+        Default implementation: checks if the last thought indicates goal achievement.
         
         Args:
             goal: The goal to check
-            execution_history: History of plan-action-reflection cycles
+            execution_history: History of think-act cycles
             
         Returns:
             True if the goal is achieved, False otherwise
@@ -157,10 +187,9 @@ class BaseAgent:
         if not execution_history:
             return False
         
-        # Default implementation: check if last reflection indicates success
+        # Default implementation: check if last thought indicates goal achievement
         last_cycle = execution_history[-1]
-        last_reflection = last_cycle.get("reflection", {})
-        return last_reflection.get("action_successful", False)
+        return last_cycle.get("goal_achieved", False)
     
     def add_tool(self, tool: Tool):
         """Add a tool to the agent's toolkit."""
@@ -181,95 +210,154 @@ class BaseAgent:
         """Get a list of available tool names."""
         return [tool.name for tool in self.tools]
     
-    def _create_plan(self, goal: str, parent_span_id: str) -> Plan:
-        """Create a plan for achieving the goal."""
+    def _think(self, goal: str, parent_span_id: str) -> Thought:
+        """Think about the current situation and decide what to do next."""
+        current_iteration = len(self.execution_history) + 1
         context = {
             "goal": goal,
             "agent_description": self.description,
-            "available_tools": [{"name": tool.name, "description": tool.description} for tool in self.tools],
-            "execution_history": self.execution_history[-3:] if self.execution_history else []  # Last 3 cycles for context
+            "available_tools": [{"name": tool.name, "description": tool.description, "parameters": tool.parameters} for tool in self.tools],
+            "execution_history": self.execution_history[-3:] if self.execution_history else [],  # Last 3 cycles for context
+            "execution_context": self.execution_context,
+            "last_action_result": self.last_action_result.dict() if self.last_action_result else None,
+            "current_iteration": current_iteration,
+            "max_iterations": self.max_iterations,
+            "iterations_remaining": self.max_iterations - current_iteration
         }
         
-        plan_call = self.call_llm(
-            name="plan",
-            instructions="You are a planning assistant. Analyze the goal and create a detailed plan to achieve it. Consider the available tools and any previous execution history. If the goal is already achieved based on the history, set goal_achieved to true.",
+        think_call = self.call_llm(
+            name="think",
+            instructions=f"""You are implementing the THINK step in a Think -> Act reasoning loop.
+
+YOUR RESPONSIBILITIES:
+1. ANALYZE the current situation toward achieving the goal
+2. REVIEW previous action results and update context if needed
+3. DECIDE if the goal has been achieved or if another action is needed
+4. CHOOSE the specific tool and parameters for the next action
+
+THINKING PROCESS:
+- Consider the main goal and current progress
+- Analyze the last action result (if any) and what it tells you
+- Review execution_context for important data from previous actions
+- Be AWARE of your iteration count: you are on iteration {current_iteration} of {self.max_iterations} maximum
+- With {self.max_iterations - current_iteration} iterations remaining, plan efficiently to complete the goal
+- If approaching iteration limit, prioritize the most important parts of the goal
+- Determine if goal is achieved or what action is needed next
+
+CONTEXT UPDATES:
+If the last action produced useful results, extract important data into context_updates:
+- Use descriptive keys (e.g., 'email_count', 'calculation_result', 'user_preference')
+- Store IDs, references, computed values, or state information
+- This data will be available in future think cycles
+
+GOAL ACHIEVEMENT:
+Set goal_achieved=true only if the main goal is completely accomplished.
+
+ACTION SELECTION:
+If an action is needed (next_action_needed=true):
+- Choose the most appropriate tool for the next step
+- Always use tools to complete the goal if possible
+- Provide ALL required parameters
+- Use data from execution_context when available
+- Set tool_name to 'direct_response' only if no tool makes sense AND you can complete the goal without tools
+- Set tool_name to 'none' if goal is achieved
+
+Be thorough in your reasoning and decisive in your action selection.""",
             input_data=context,
-            output_schema=Plan,
+            output_schema=Thought,
             parent_span_id=parent_span_id
         )
         
-        return Plan(**plan_call.json_payload)
+        return Thought(**think_call.json_payload)
     
-    def _decide_action(self, plan: Plan, parent_span_id: str) -> Action:
-        """Decide what action to take based on the current plan."""
-        context = {
-            "plan": plan.dict(),
-            "available_tools": [{"name": tool.name, "description": tool.description, "parameters": tool.parameters} for tool in self.tools]
-        }
+    def _execute_action(self, thought: Thought, parent_span_id: Optional[str] = None) -> ActionResult:
+        """Execute the action determined by the thought."""
+        import time
+        start_time = time.time()
         
-        action_call = self.call_llm(
-            name="decide",
-            instructions="You are an action planner. Based on the current plan and available tools, decide what specific action to take to execute the next step in the plan. Use 'direct_response' as tool_name if you can complete the goal directly without tools.",
-            input_data=context,
-            output_schema=Action,
-            parent_span_id=parent_span_id
-        )
+        if thought.tool_name == "none" or not thought.next_action_needed:
+            # No action needed - goal achieved
+            execution_time = time.time() - start_time
+            return ActionResult(
+                success=True,
+                result="No action needed - goal achieved",
+                tool_name="none",
+                parameters={},
+                execution_time=execution_time
+            )
         
-        return Action(**action_call.json_payload)
-    
-    def _execute_action(self, action: Action) -> Dict[str, Any]:
-        """Execute the specified action."""
-        if action.tool_name == "direct_response":
-            return {
-                "type": "direct_response",
-                "result": "Task completed directly without tool usage",
-                "success": True
-            }
+        if thought.tool_name == "direct_response":
+            # Direct completion without tool usage
+            execution_time = time.time() - start_time
+            return ActionResult(
+                success=True,
+                result="Task completed directly without tool usage",
+                tool_name="direct_response", 
+                parameters=thought.tool_parameters,
+                execution_time=execution_time
+            )
         
         # Find and execute the tool
-        tool = self.get_tool(action.tool_name)
+        tool = self.get_tool(thought.tool_name)
         if not tool:
-            return {
-                "type": "error",
-                "result": f"Tool '{action.tool_name}' not found",
-                "success": False
-            }
+            execution_time = time.time() - start_time
+            return ActionResult(
+                success=False,
+                result=f"Tool '{thought.tool_name}' not found",
+                tool_name=thought.tool_name,
+                parameters=thought.tool_parameters,
+                execution_time=execution_time
+            )
         
         try:
-            result = tool.execute(**action.tool_parameters)
-            return {
-                "type": "tool_execution",
-                "tool_name": action.tool_name,
-                "parameters": action.tool_parameters,
-                "result": result,
-                "success": True
-            }
+            # Create a span for this tool execution
+            tool_span = None
+            if parent_span_id:
+                tool_span = self.opper.spans.create(
+                    name=f"tool_{thought.tool_name}",
+                    input=f"Tool: {thought.tool_name}, Parameters: {thought.tool_parameters}",
+                    parent_id=parent_span_id
+                )
+            
+            # Execute the tool with tracing context
+            result = tool.execute(_parent_span_id=tool_span.id if tool_span else None, **thought.tool_parameters)
+            
+            execution_time = time.time() - start_time
+            
+            # Update the tool span with results
+            if tool_span:
+                self.opper.spans.update(
+                    span_id=tool_span.id,
+                    output=f"Success: {str(result)[:200]}..."
+                )
+            
+            return ActionResult(
+                success=True,
+                result=str(result),
+                tool_name=thought.tool_name,
+                parameters=thought.tool_parameters,
+                execution_time=execution_time
+            )
         except Exception as e:
-            return {
-                "type": "error",
-                "tool_name": action.tool_name,
-                "parameters": action.tool_parameters,
-                "result": f"Error executing tool: {str(e)}",
-                "success": False
-            }
+            execution_time = time.time() - start_time
+            
+            # Update the tool span with error
+            if tool_span:
+                self.opper.spans.update(
+                    span_id=tool_span.id,
+                    output=f"Error: {str(e)}"
+                )
+            
+            return ActionResult(
+                success=False,
+                result=f"Error executing tool: {str(e)}",
+                tool_name=thought.tool_name,
+                parameters=thought.tool_parameters,
+                execution_time=execution_time
+            )
+
     
-    def _reflect_on_result(self, action: Action, action_result: Dict[str, Any], plan: Plan, parent_span_id: str) -> Reflection:
-        """Reflect on the result of the action."""
-        context = {
-            "action": action.dict(),
-            "action_result": action_result,
-            "goal": self.current_goal
-        }
-        
-        reflection_call = self.call_llm(
-            name="reflect",
-            instructions="You are a reflection assistant. Analyze what happened with this specific action and its result. Evaluate if the action was successful and what should be done next to progress toward the goal.",
-            input_data=context,
-            output_schema=Reflection,
-            parent_span_id=parent_span_id
-        )
-        
-        return Reflection(**reflection_call.json_payload)
+
     
     def _generate_final_result(self, goal: str, execution_history: List[Dict[str, Any]], parent_span_id: str) -> Any:
         """Generate the final structured result based on the output schema."""
@@ -306,9 +394,48 @@ class BaseAgent:
         tool_names = [tool.name for tool in self.tools]
         return f"Agent '{self.name}' tools: {', '.join(tool_names)}"
     
+    def get_context_summary(self) -> str:
+        """Get a formatted summary of current execution context."""
+        if not self.execution_context:
+            return "Execution context is empty"
+        
+        summary = f"Execution context ({len(self.execution_context)} items):\n"
+        for key, value in self.execution_context.items():
+            value_str = str(value)
+            if len(value_str) > 100:
+                value_str = value_str[:97] + "..."
+            summary += f"  {key}: {value_str}\n"
+        return summary.strip()
+    
+    def get_execution_summary(self) -> str:
+        """Get a formatted summary of execution history (thoughts and actions)."""
+        if not self.execution_history:
+            return "No execution history available"
+        
+        summary = f"Execution history ({len(self.execution_history)} iterations):\n"
+        for cycle in self.execution_history:
+            iteration = cycle.get("iteration", "?")
+            tool = cycle.get("action_tool", "unknown")
+            success = "✅" if cycle.get("action_success", False) else "❌"
+            goal_achieved = "🎯" if cycle.get("goal_achieved", False) else ""
+            
+            summary += f"  {iteration}. Think→{tool} {success}{goal_achieved}"
+            
+            if "error_details" in cycle:
+                error = cycle["error_details"].get("action_error", "Unknown error")
+                summary += f" - Error: {error[:50]}..."
+            
+            summary += "\n"
+        
+        return summary.strip()
+    
+    def clear_context(self):
+        """Clear the execution context. Useful for testing or manual control."""
+        self.execution_context = {}
+    
     def process(self, goal: str) -> Dict[str, Any]:
         """
-        Process a goal using the reasoning loop: Plan -> Act -> Reflect -> Repeat.
+        Process a goal using the reasoning loop: Think -> Act -> Repeat.
         
         This is the main method that implements the core reasoning loop.
         It continues until the goal is achieved or max iterations are reached.
@@ -321,6 +448,8 @@ class BaseAgent:
         """
         self.current_goal = goal
         self.execution_history = []
+        self.execution_context = {}  # Reset context for new goal
+        self.last_action_result = None  # Reset last action result
         
         # Start a trace for this goal processing session
         trace = self.start_trace(
@@ -339,8 +468,10 @@ class BaseAgent:
             print(f"🎯 Starting goal: {goal}")
             print(f"🤖 Agent: {self.name}")
             print(f"🔧 Available tools: {[tool.name for tool in self.tools]}")
+            print(f"🔄 Max iterations: {self.max_iterations}")
         
         iteration = 0
+        goal_achieved_early = False
         while iteration < self.max_iterations:
             iteration += 1
             
@@ -354,81 +485,87 @@ class BaseAgent:
             if self.verbose:
                 print(f"\n--- Iteration {iteration} ---")
             
-            # Step 1: Plan
-            plan = self._create_plan(goal, iteration_span.id)
+            # Step 1: Think
+            thought = self._think(goal, iteration_span.id)
             
-            # Emit plan event
-            self._emit_status("plan_created", {
+            # Emit think event
+            self._emit_status("thought_created", {
                 "iteration": iteration,
-                "plan": plan.dict()
+                "thought": thought.dict()
             })
             
             if self.verbose:
-                print(f"📋 Plan: {plan.thoughts}")
-                print(f"📝 Steps: {plan.steps}")
+                print(f"🧠 Thought: {thought.reasoning}")
+                print(f"🎯 Goal achieved: {thought.goal_achieved}")
+                print(f"⚡ Next action: {thought.tool_name}")
             
-            # Check if goal is already achieved
-            if plan.goal_achieved:
+            # Check if goal is achieved
+            if thought.goal_achieved:
+                goal_achieved_early = True
                 if self.verbose:
                     print("✅ Goal achieved!")
                 break
             
-            # Step 2: Decide and execute action
-            action = self._decide_action(plan, iteration_span.id)
-            
-            # Emit action event
-            self._emit_status("action_decided", {
-                "iteration": iteration,
-                "action": action.dict()
-            })
-            
-            if self.verbose:
-                print(f"⚡ Action: {action.tool_name} with {action.tool_parameters}")
-            
-            action_result = self._execute_action(action)
-            
-            # Emit action result event
-            self._emit_status("action_executed", {
-                "iteration": iteration,
-                "action": action.dict(),
-                "result": action_result
-            })
-            
-            if self.verbose:
-                print(f"📊 Result: {action_result}")
-            
-            # Step 3: Reflect on the result
-            reflection = self._reflect_on_result(action, action_result, plan, iteration_span.id)
-            
-            # Emit reflection event
-            self._emit_status("reflection_completed", {
-                "iteration": iteration,
-                "reflection": reflection.dict()
-            })
-            
-            if self.verbose:
-                print(f"🤔 Reflection: {reflection.thoughts}")
-                print(f"📈 Progress: {reflection.goal_progress}")
+            # Step 2: Act (if action is needed)
+            if thought.next_action_needed:
+                action_result = self._execute_action(thought, iteration_span.id)
+                
+                # Store the action result for the next think cycle
+                self.last_action_result = action_result
+                
+                # Emit action result event
+                self._emit_status("action_executed", {
+                    "iteration": iteration,
+                    "thought": thought.dict(),
+                    "action_result": action_result.dict()
+                })
+                
+                if self.verbose:
+                    print(f"⚡ Action: {action_result.tool_name} with {thought.tool_parameters}")
+                    print(f"📊 Result: {action_result.result}")
+                    print(f"✅ Success: {action_result.success}")
+            else:
+                # No action needed
+                action_result = ActionResult(
+                    success=True,
+                    result="No action needed in this iteration",
+                    tool_name="none",
+                    parameters={},
+                    execution_time=0.0
+                )
+                self.last_action_result = action_result
             
             # Store this iteration's cycle
             cycle = {
                 "iteration": iteration,
-                "plan": plan.dict(),
-                "action": action.dict(),
-                "action_result": action_result,
-                "reflection": reflection.dict(),
+                "thought_reasoning": thought.reasoning[:200] + "..." if len(thought.reasoning) > 200 else thought.reasoning,
+                "goal_achieved": thought.goal_achieved,
+                "action_tool": action_result.tool_name,
+                "action_parameters": action_result.parameters,
+                "action_success": action_result.success,
+                "action_result": action_result.result,
+                "execution_time": action_result.execution_time,
                 "timestamp": time.time()
             }
+            
+            # Add error details if action failed
+            if not action_result.success:
+                cycle["error_details"] = {
+                    "action_error": action_result.result,
+                    "tool_name": action_result.tool_name,
+                    "parameters": action_result.parameters
+                }
+            
             self.execution_history.append(cycle)
             
             # Update the iteration span with the results
             self.opper.spans.update(
                 span_id=iteration_span.id,
-                output=f"Plan: {plan.thoughts[:100]}... | Action: {action.tool_name} | Success: {reflection.action_successful}"
+                output=f"Thought: {thought.reasoning[:100]}... | Action: {action_result.tool_name} | Success: {action_result.success}"
             )
             
-            # Update current plan
-            self.current_plan = plan
+            # Update current thought
+            self.current_thought = thought
             
         
         # Generate the final structured result
@@ -449,11 +586,20 @@ class BaseAgent:
         
         if self.verbose:
             print(f"\n🏁 Completed in {iteration} iterations")
+            
+            # Check if we reached max iterations without achieving goal
+            if not goal_achieved_early and iteration >= self.max_iterations:
+                print(f"⚠️  Reached maximum iterations ({self.max_iterations}) without achieving goal")
+                print(f"💡 Consider increasing max_iterations or breaking down the goal into smaller steps")
+            
             # Handle both structured and unstructured results
             if isinstance(final_result, dict) and 'achieved' in final_result:
                 print(f"✅ Goal achieved: {final_result['achieved']}")
             else:
-                print(f"✅ Goal achieved: {self.is_goal_achieved(goal, self.execution_history)}")
+                goal_achieved = self.is_goal_achieved(goal, self.execution_history)
+                print(f"✅ Goal achieved: {goal_achieved}")
+                if not goal_achieved and iteration >= self.max_iterations:
+                    print(f"🔄 Agent stopped due to iteration limit, goal may be partially complete")
                 print(f"📄 Structured result: {final_result}")
         
         return final_result
@@ -492,8 +638,8 @@ class BaseAgent:
             input_schema=input_schema,
             output_schema=output_schema,
             input=input_data,
-            model=model,
-            parent_span_id=parent_span_id
+            model="groq/gpt-oss-120b",
+            parent_span_id=parent_span_id,
         )
     
     def start_trace(self, name: str, input_data: Any = None):
