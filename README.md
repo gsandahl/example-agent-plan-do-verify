@@ -33,6 +33,19 @@ A complete example showing how to use BaseAgent to create a math-solving agent. 
 - **Goal Processing**: Solves complex math problems step-by-step
 - **Status Callbacks**: Real-time updates during problem solving
 
+Example run output:
+
+```
+Agent: MathAgent
+Goal: Calculate the result of (25 * 4) + (100 / 5) - 7
+Available tools: add, subtract, multiply, divide
+I will now compute the first term by multiplying 25 by 4.
+I will now divide 100 by 5 to calculate the second term.
+I will proceed to add the results of the first term (100) and the second term (20) together.
+I am about to subtract 7 from 120 to complete the calculation.
+Result: 113
+```
+
 ### EmailAgent (`email_agent.py`)
 
 A comprehensive Gmail-integrated agent that automates email management workflows. It includes:
@@ -49,13 +62,14 @@ A comprehensive Gmail-integrated agent that automates email management workflows
 Example run output:
 
 ```
-Agent created:  MathAgent
-Goal: Calculate the result of (25 * 4) + (100 / 5) - 7
-Agent: I will now compute the first term by multiplying 25 by 4.
-Agent: I will now divide 100 by 5 to calculate the second term.
-Agent: I will proceed to add the results of the first term (100) and the second term (20) together.
-Agent: I am about to subtract 7 from 120 to complete the calculation.
-Result: 113
+Agent: EmailAgent
+Goal: Go through the last 10 undread emails, apply labels (info, spam, news, personal) and draft responses in cases where appropriate (such as obvious follow up questions)
+Available tools: gmail_auth, list_emails, read_email, fetch_unreplied_emails, add_draft_response, add_email_tag
+Fetching the 10 most recent unread emails so we can review, label, and draft any needed replies.
+Analyzing the first unread email to determine its category, necessary label, and if a reply should be drafted.
+Applying the 'personal' label to the first email (Lunch invitation) as identified.
+Creating a draft reply for the lunch invitation email so you can review and send it. After this, I will continue analyzing and labeling the remaining unread emails.
+Fetching the remaining unread emails to continue processing.
 ```
 
 ## Quick Start

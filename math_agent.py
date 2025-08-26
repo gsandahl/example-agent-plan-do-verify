@@ -132,6 +132,8 @@ def print_status(event_type: str, data: dict):
     if event_type == "goal_start":
         print(f"Agent: {data.get('agent_name')}")
         print(f"Goal: {data.get('goal')}")
+        available_tools = data.get('available_tools', [])
+        print(f"Tools: {', '.join(available_tools)}")
     elif event_type == "thought_created":
         user_message = data.get("thought", {}).get("user_message", "")
         if user_message:
