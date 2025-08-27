@@ -31,7 +31,8 @@ class Tool(BaseModel):
         raise NotImplementedError(f"Tool {self.name} execution not implemented")
     
     def make_ai_call(self, opper_client, name: str, instructions: str, input_data: Any = None, 
-                     output_schema: Optional[type] = None, parent_span_id: Optional[str] = None) -> Any:
+                     output_schema: Optional[type] = None, parent_span_id: Optional[str] = None,
+                     model: Optional[str] = None) -> Any:
         """
         Helper method for tools to make AI calls with proper tracing.
         
@@ -42,6 +43,7 @@ class Tool(BaseModel):
             input_data: Input data for the call
             output_schema: Optional output schema
             parent_span_id: Parent span ID for tracing
+            model: Optional model to use (defaults to "groq/gpt-oss-120b")
             
         Returns:
             AI call result
@@ -52,7 +54,7 @@ class Tool(BaseModel):
             input=input_data,
             output_schema=output_schema,
             parent_span_id=parent_span_id,
-            model="groq/gpt-oss-120b"
+            model=model or "groq/gpt-oss-120b"
         )
 
 
@@ -626,7 +628,7 @@ Be thorough in your reasoning and decisive in your action selection.""",
             input_schema: Optional Pydantic model for input validation
             output_schema: Optional Pydantic model for output validation
             input_data: Input data for the call
-            model: Optional specific model to use
+            model: Optional specific model to use (defaults to "groq/gpt-oss-120b")
             parent_span_id: Optional parent span ID for tracing
             
         Returns:
@@ -638,7 +640,7 @@ Be thorough in your reasoning and decisive in your action selection.""",
             input_schema=input_schema,
             output_schema=output_schema,
             input=input_data,
-            model="groq/gpt-oss-120b",
+            model=model or "groq/gpt-oss-120b",
             parent_span_id=parent_span_id,
         )
     

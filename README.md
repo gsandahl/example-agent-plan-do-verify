@@ -72,6 +72,59 @@ Creating a draft reply for the lunch invitation email so you can review and send
 Fetching the remaining unread emails to continue processing.
 ```
 
+### ResearchAgent (`research_agent.py`)
+
+A sophisticated web research agent that performs comprehensive information gathering and analysis. It includes:
+
+- **Web Search**: Advanced search capabilities using DuckDuckGo with customizable parameters
+- **Content Extraction**: Intelligent web scraping with content cleaning and structure analysis
+- **Source Verification**: Cross-references information across multiple sources for accuracy
+- **Report Generation**: Structured research reports with citations and source links
+- **Deep Analysis**: AI-powered analysis of gathered information with insights and patterns
+- **Multi-step Research**: Handles complex research workflows with follow-up investigations
+- **Citation Management**: Proper attribution and source tracking throughout the research process
+
+Example run output:
+
+```
+Agent: ResearchAgent
+Goal: Research the latest developments in quantum computing and create a summary report
+Available tools: web_search, extract_content, analyze_sources, generate_report
+🔍 Searching for recent quantum computing developments and breakthroughs.
+📄 Found 15 relevant articles, extracting content from top sources like Nature and IEEE.
+🔬 Analyzing quantum computing trends across academic papers and industry reports.
+📊 Cross-referencing information to identify key developments and verify claims.
+📝 Generating comprehensive report with timeline of recent breakthroughs and future outlook.
+✅ Research complete: 2,500-word report with 12 verified sources and key insights.
+```
+
+### TwitterAgent (`twitter_agent.py`)
+
+A powerful Twitter/X platform agent that integrates with Composio for comprehensive social media automation. It includes:
+
+- **Composio Integration**: Secure OAuth authentication with Twitter through Composio platform
+- **Dynamic Tool Discovery**: Automatically discovers and uses all available Twitter tools from Composio
+- **Tweet Management**: Post tweets, replies, threads with character limit validation and media support
+- **Search & Discovery**: Advanced search for tweets, users, hashtags with filtering and sorting options
+- **User Management**: Follow/unfollow users, get detailed profiles, manage lists and interactions
+- **Content Curation**: Like, retweet, comment on posts with intelligent engagement strategies
+- **Analytics & Insights**: Monitor engagement, track mentions, analyze follower growth and content performance
+- **Automated Workflows**: Handle complex Twitter operations like content scheduling and audience engagement
+
+Example run output:
+
+```
+Agent: TwitterAgent
+Goal: Post a funny tweet about AI and engage with responses
+Available tools: post_tweet, search_tweets, follow_user, like_tweet, retweet
+📝 Crafting a humorous tweet about AI that's timely and engaging.
+🐦 Posted tweet: "AI tried to tell me a joke about machine learning... I didn't get it, but apparently it's training data now 🤖😂"
+👀 Monitoring tweet performance and incoming replies for engagement opportunities.
+❤️ Liking and replying to positive responses to boost engagement.
+📈 Tweet gained 50 likes and 12 retweets in first hour - engaging with new followers.
+✅ Successfully posted engaging content and built community interactions.
+```
+
 ## Quick Start
 
 ### Math Agent
@@ -123,6 +176,62 @@ The first run will open a browser window for Gmail authentication. After authori
 - Determine reply necessity and urgency
 - Generate contextual draft responses with proper threading
 - Handle complex workflows like "process 10 unread emails, categorize them, and draft responses"
+
+### Research Agent
+
+1. **Install dependencies**:
+```bash
+pip install opperai pydantic requests beautifulsoup4
+```
+
+2. **Set your Opper API key**:
+```bash
+export OPPER_API_KEY="your_api_key_here"
+```
+
+3. **Run the research agent**:
+```bash
+python research_agent.py
+```
+
+The research agent requires no additional setup and can immediately:
+- Search the web for information on any topic
+- Extract and clean content from web pages
+- Analyze multiple sources and cross-reference information
+- Generate comprehensive research reports with proper citations
+- Handle complex research workflows like "research renewable energy trends and create a market analysis"
+
+### Twitter Agent
+
+1. **Install all dependencies**:
+```bash
+python setup_twitter_agent.py
+```
+
+2. **Set up Composio API credentials**:
+   - Create an account at [Composio](https://app.composio.dev/)
+   - Get your API key from the developer dashboard
+   - Set up Twitter integration in Composio (requires Twitter Developer account)
+
+3. **Set your API keys**:
+```bash
+export COMPOSIO_API_KEY="your_composio_api_key_here"
+export OPPER_API_KEY="your_opper_api_key_here"
+```
+
+4. **Run the Twitter agent**:
+```bash
+python twitter_agent.py user@example.com
+```
+
+The agent automatically discovers all available Twitter tools from Composio and can:
+- Post tweets, replies, and manage Twitter content
+- Search for tweets, users, and trending topics
+- Follow/unfollow users and manage social connections
+- Like, retweet, and engage with content strategically
+- Create and manage Twitter lists for content curation
+- Monitor mentions and analyze engagement patterns
+- Handle complex workflows like "create a Twitter list about AI, find relevant users, and engage with their content"
 
 ## Creating Your Own Agent
 
